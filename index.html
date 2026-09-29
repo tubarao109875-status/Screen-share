@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Streamer</title>
+    <!-- Importa a biblioteca PeerJS grátis -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background-color: #111214; color: white; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .controls { background: #1e1f22; padding: 8px; display: flex; gap: 6px; align-items: center; justify-content: center; }
+        input { background: #313338; border: 1px solid #4e5058; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 120px; }
+        button { background: #5865f2; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #4752c4; }
+        button.live { background: #23a55a; }
+        .video-container { flex: 1; background: black; display: flex; justify-content: center; align-items: center; position: relative; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        #status { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 10px; color: #b5bac1; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="text" id="room-id" placeholder="Nome da Sala" value="gang-bmb">
+        <button id="btn-stream" class="live">Transmitir</button>
+        <button id="btn-watch">Assistir</button>
+    </div>
+
+    <div class="video-container">
+        <div id="status">Aguardando ação...</div>
+        <video id="main-video" autoplay playsinline controls></video>
+    </div>
+
+    <script>
+        let peer = null;
+        let localStream = null;
+        const statusEl = document.getElementById('status');
+        const videoEl = document.getElementById('main-video');
+
+        // 1. Iniciar Transmissão (Quem compartilha a tela)
+        document.getElementById('btn-stream').addEventListener('click', async () => {
+            const room = document.getElementById('room-id').value;
+            if (!room) return alert("Digite o nome da sala!");
+
+            try {
+                // Captura a Tela do Computador (Linux/Windows)
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: 60 },
+                    audio: true
+                });
+
+                videoEl.srcObject = localStream;
+                statusEl.innerText = "Sua tela está sendo exibida localmente. Criando sala...";
+
+                // Cria o servidor P2P usando o nome da sala como ID do host
+                peer = new Peer(room + "-host");
+
+                peer.on('open', (id) => {
+                    statusEl.innerText = `AO VIVO na sala: "${room}"! Seus amigos já podem conectar.`;
+                });
+
+                // Quando um amigo se conectar pedindo o vídeo:
+                peer.on('call', (call) => {
+                    call.answer(localStream); // Envia o vídeo para ele
+                    statusEl.innerText = "Um amigo se conectou à sua transmissão!";
+                });
+
+                peer.on('error', (err) => {
+                    if(err.type === 'unavailable-id') {
+                        statusEl.innerText = "Erro: Já tem alguém transmitindo nessa sala!";
+                    }
+                });
+
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = "Erro ao capturar tela ou permissão negada.";
+            }
+        });
+
+        // 2. Assistir Transmissão (Seus amigos)
+        document.getElementById('btn-watch').addEventListener('click', () => {
+            const room = document.getElementById('room-id').value;
+            if (!room) return alert("Digite o nome da sala!");
+
+            statusEl.innerText = "Conectando ao amigo...";
+            peer = new Peer(); // Cria uma ID temporária para quem assiste
+
+            peer.on('open', () => {
+                // Tenta ligar para a sala do amigo que está transmitindo
+                const hostId = room + "-host";
+                const call = peer.call(hostId, null);
+
+                if (!call) {
+                    statusEl.innerText = "Não foi possível encontrar essa sala.";
+                    return;
+                }
+
+                call.on('stream', (remoteStream) => {
+                    videoEl.srcObject = remoteStream;
+                    statusEl.innerText = `Assistindo a transmissão da sala: "${room}"`;
+                });
+            });
+
+            peer.on('error', (err) => {
+                statusEl.innerText = "Erro: Transmissão não encontrada ou offline.";
+            });
+        });
+    </script>
+</body>
+</html>
